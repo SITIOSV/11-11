@@ -809,6 +809,7 @@
   font-size: calc(var(--cell) * .62); letter-spacing: .14em; text-align: center;
   margin-bottom: calc(var(--cell) * .3); text-shadow: 0 4px 18px rgba(0,0,0,.8);
   transform: translateZ(calc(var(--cell) * .15));
+  height: calc(var(--cell) * 1.45); display: flex; align-items: center; justify-content: center; line-height: 1.12; overflow: visible;
 }
 .cal-days { display: grid; grid-template-columns: repeat(7, var(--cell)); grid-auto-rows: var(--cell); gap: calc(var(--cell) * .08); transform-style: preserve-3d; }
 .cal-dow-i { display: flex; align-items: center; justify-content: center; font-size: calc(var(--cell) * .24); color: rgba(255,245,233,.5); letter-spacing: .08em; }
@@ -823,7 +824,13 @@
   color: rgba(255,245,233,.82); transform: translateZ(calc(var(--cell) * .22)); text-shadow: 0 6px 10px rgba(0,0,0,.7);
 }
 .cal-cell.empty { background: none; box-shadow: none; }
+.cal-cell .cal-mn { position: absolute; top: 6%; left: 9%; font: 600 calc(var(--cell) * .17) 'Montserrat', sans-serif; letter-spacing: .1em; color: rgba(247,226,156,.8); transform: translateZ(calc(var(--cell) * .22)); }
 .cal-cell.mark span { color: var(--gold-light); }
+/* Días que se van sombreando (clip, clip, clip…) hasta llegar a hoy */
+.cal-cell.past { background: linear-gradient(180deg, rgba(212,175,55,.34), rgba(122,10,42,.55)); box-shadow: 0 0 0 1px rgba(212,175,55,.45) inset, 0 calc(var(--cell) * .12) calc(var(--cell) * .2) rgba(0,0,0,.55); animation: calClip .38s var(--ease-cine); }
+.cal-cell.past span { color: rgba(255,226,160,.95); }
+.cal-cell.past::before { content: ''; position: absolute; left: 14%; right: 14%; top: 50%; height: calc(var(--cell) * .035); background: rgba(247,226,156,.75); transform: rotate(-18deg); border-radius: 2px; }
+@keyframes calClip { 0% { filter: brightness(2.2); transform: translateZ(calc(var(--cell) * .12)) scale(1.18); } 100% { filter: brightness(1); transform: translateZ(calc(var(--cell) * .12)) scale(1); } }
 .cal-cell.target {
   background: radial-gradient(circle at 50% 40%, rgba(255,214,236,.95), rgba(220,20,60,.85) 62%, rgba(122,10,42,.95));
   box-shadow: 0 0 0 calc(var(--cell) * .03) var(--gold), 0 0 calc(var(--cell) * .6) rgba(255,90,140,.9), 0 calc(var(--cell) * .2) calc(var(--cell) * .4) rgba(0,0,0,.6);
@@ -2939,34 +2946,46 @@
      1) INTRO — calendario 3D con cámara tipo dron
   ===================================================================== */
   function runIntro() {
+    // las medidas del calendario dependen de las tipografías: se espera a que carguen (máx. 1.8 s)
+    const fontsReady = (document.fonts && document.fonts.ready) ? Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 1800))]) : Promise.resolve();
+    return fontsReady.catch(() => {}).then(runIntroCore);
+  }
+  function runIntroCore() {
     const root = $('intro-cal'), sheet = $('cal-sheet'), rig = $('cal-rig'), flash = $('cal-flash');
     if (!root || !sheet || !rig) { S.introActive = false; return Promise.resolve(); }
 
     const t = Math.max(startUTC(), Math.min(lastUTC(), todayUTC()));
-    const d = new Date(t), Y = d.getUTCFullYear(), M = d.getUTCMonth(), D = d.getUTCDate();
+    const sd = new Date(startUTC()), ed = new Date(lastUTC());
 
-    // --- construir el mes ---
-    const title = document.createElement('div'); title.className = 'cal-month'; title.textContent = MONTHS_UP[M] + ' ' + Y;
+    // --- construir el calendario continuo: todos los días del 11/11 al 12/12 ---
+    const title = document.createElement('div'); title.className = 'cal-month';
+    title.textContent = MONTHS_UP[sd.getUTCMonth()] + ' · ' + MONTHS_UP[ed.getUTCMonth()] + ' ' + ed.getUTCFullYear();
     const grid = document.createElement('div'); grid.className = 'cal-days';
     ['L', 'M', 'M', 'J', 'V', 'S', 'D'].forEach((x) => { const e = document.createElement('div'); e.className = 'cal-dow-i'; e.textContent = x; grid.appendChild(e); });
-    const offset = (new Date(Date.UTC(Y, M, 1)).getUTCDay() + 6) % 7;
-    const total = new Date(Date.UTC(Y, M + 1, 0)).getUTCDate();
+    const offset = (sd.getUTCDay() + 6) % 7;
+    const total = Math.round((lastUTC() - startUTC()) / DAY_MS) + 1;
+    const tIdx = Math.round((t - startUTC()) / DAY_MS);     // posición de hoy dentro del rango
     for (let k = 0; k < offset; k++) { const e = document.createElement('div'); e.className = 'cal-cell empty'; grid.appendChild(e); }
     let targetEl = null;
-    for (let n = 1; n <= total; n++) {
-      const c = document.createElement('div'); c.className = 'cal-cell';
-      const u = Date.UTC(Y, M, n);
-      if (u === startUTC() || u === lastUTC()) c.classList.add('mark');
-      if (n === D) { c.classList.add('target'); targetEl = c; }
-      const s = document.createElement('span'); s.textContent = n; c.appendChild(s);
+    const dayCells = [];
+    for (let i = 0; i < total; i++) {
+      const c = document.createElement('div'); c.className = 'cal-cell'; dayCells.push(c);
+      const u = startUTC() + i * DAY_MS, ud = new Date(u).getUTCDate();
+      if (i === 0 || i === total - 1) c.classList.add('mark');
+      if (i === tIdx) { c.classList.add('target'); targetEl = c; }
+      const s = document.createElement('span'); s.textContent = ud; c.appendChild(s);
+      if (ud === 1 || i === 0) { const m = document.createElement('small'); m.className = 'cal-mn'; m.textContent = MONTHS_UP[new Date(u).getUTCMonth()].slice(0, 3); c.appendChild(m); }
       grid.appendChild(c);
     }
     sheet.appendChild(title); sheet.appendChild(grid);
 
     // --- medidas: el centro de la fecha queda en el origen de la cámara ---
     const W = sheet.offsetWidth, H = sheet.offsetHeight;
-    const cx = targetEl.offsetLeft + targetEl.offsetWidth / 2;
-    const cy = targetEl.offsetTop + targetEl.offsetHeight / 2;
+    // posición de la fecha DENTRO de la hoja (el offsetParent de la celda es la cuadrícula, no la hoja: se suman los niveles)
+    let ox = 0, oy = 0, nd = targetEl;
+    while (nd && nd !== sheet) { ox += nd.offsetLeft; oy += nd.offsetTop; nd = nd.offsetParent; }
+    const cx = ox + targetEl.offsetWidth / 2;
+    const cy = oy + targetEl.offsetHeight / 2;
     const C = targetEl.offsetWidth;
     sheet.style.left = (-cx) + 'px';
     sheet.style.top = (-cy) + 'px';
@@ -2986,24 +3005,52 @@
     $('intro-skip').addEventListener('click', () => leave(true));
     window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !finished) leave(true); });
 
+    // "clip, clip, clip": cada día se sombrea con un tic hasta llegar a la fecha de hoy
+    let tickCtx = null;
+    try { const AC = window.AudioContext || window.webkitAudioContext; if (AC) tickCtx = new AC(); } catch (e) {}
+    const wake = () => { if (tickCtx && tickCtx.state === 'suspended') { try { tickCtx.resume(); } catch (e) {} } };
+    ['pointerdown', 'keydown', 'touchstart'].forEach((ev) => window.addEventListener(ev, wake, { once: true, passive: true }));
+    const clip = (final) => {
+      if (!tickCtx || tickCtx.state !== 'running') return;
+      try {
+        const now = tickCtx.currentTime, o = tickCtx.createOscillator(), g = tickCtx.createGain();
+        o.type = 'square'; o.frequency.setValueAtTime(final ? 760 : 1500, now); o.frequency.exponentialRampToValueAtTime(final ? 520 : 700, now + 0.05);
+        g.gain.setValueAtTime(final ? 0.07 : 0.045, now); g.gain.exponentialRampToValueAtTime(0.0001, now + (final ? 0.22 : 0.07));
+        o.connect(g); g.connect(tickCtx.destination); o.start(now); o.stop(now + 0.25);
+      } catch (e) {}
+    };
+
     if (RM || !rig.animate) {
-      // sin movimiento: calendario fijo, fecha iluminada, fundido
+      // movimiento reducido: sin cámara, pero SÍ se ve el sombreado día a día, el clip y la fecha iluminada
       const s = Math.min(innerWidth * 0.88 / W, innerHeight * 0.82 / H, 1.4);
       rig.style.transform = 'scale(' + s + ')';
-      rig.classList.add('lit');
-      timers.push(setTimeout(() => leave(true), 1800));
+      const g0 = 1200, gp = 620;
+      for (let i = 0; i < tIdx; i++) timers.push(setTimeout(() => { if (finished) return; dayCells[i].classList.add('past'); clip(false); }, g0 + i * gp));
+      const tEnd = g0 + tIdx * gp + 300;
+      timers.push(setTimeout(() => { if (finished) return; clip(true); rig.classList.add('lit'); const E = EXP(); if (E && E.chime) { try { E.chime(); } catch (e) {} } }, tEnd));
+      timers.push(setTimeout(() => leave(false), tEnd + 2600));
       return done;
     }
 
     // --- recorrido de la cámara ---
-    const dur = 8800;
+    const dur = 10500;
+
+    const count = tIdx;                                    // días desde el 11/11 hasta antes de hoy
+    const startAt = 1100, span = dur * 0.56 - startAt;     // ventana donde ocurren los clips
+    const gap = count > 0 ? Math.max(110, Math.min(520, span / count)) : 0;
+    for (let i = 0; i < count; i++) {
+      timers.push(setTimeout(() => { if (finished) return; dayCells[i].classList.add('past'); clip(false); }, startAt + i * gap));
+    }
+    timers.push(setTimeout(() => { if (!finished) clip(true); }, startAt + count * gap + 80));
+
     const tf = (px, py, rx, rz, sc) => 'rotateX(' + rx + 'deg) rotateZ(' + rz + 'deg) scale3d(' + sc + ',' + sc + ',' + sc + ') translate3d(' + (cx - px) + 'px,' + (cy - py) + 'px,0)';
     const k = Math.min(innerWidth * 0.92 / W, innerHeight * 0.82 / H);   // escala que hace caber el mes entero
     const fill = Math.min(3.6, Math.max(innerWidth, innerHeight) / C * 1.3);  // acercamiento final (tope para no pixelar)
+    const portrait = innerHeight > innerWidth;                 // teléfono en vertical: más margen y menos inclinación
     const ease = 'cubic-bezier(.45,.05,.25,1)';
     const frames = [
-      { transform: tf(W * 0.5, H * 0.30, 66, -9, k * 1.08), easing: ease, offset: 0 },
-      { transform: tf(W * 0.58, H * 0.52, 59, 5, k * 1.45), easing: ease, offset: 0.42 },
+      { transform: tf(W * 0.5, H * (portrait ? 0.46 : 0.30), portrait ? 56 : 66, portrait ? 0 : -9, k * (portrait ? 0.78 : 1.08)), easing: ease, offset: 0 },
+      { transform: tf(W * 0.56, H * 0.52, portrait ? 52 : 59, portrait ? 2 : 5, k * (portrait ? 1.2 : 1.45)), easing: ease, offset: 0.42 },
       { transform: tf(cx + C * 1.8, cy - C * 1.2, 48, -3, Math.max(k * 2.3, 1.3)), easing: ease, offset: 0.68 },
       { transform: tf(cx, cy, 22, 0, Math.max(k * 3.6, 2.3)), easing: 'cubic-bezier(.5,0,.2,1)', offset: 0.86 },
       { transform: tf(cx, cy, 0, 0, fill), offset: 1 }
