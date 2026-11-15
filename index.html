@@ -898,6 +898,21 @@
 .r12-confirm .r12-acts button.go { background: var(--gold); color: #2a1608; border-color: var(--gold); }
 
 /* ---------- Aviso breve ---------- */
+#site-block { position: fixed; inset: 0; z-index: 65; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  padding: 24px; text-align: center; background: #eceaea; color: #111; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+#site-block.on { display: flex; }
+#sb-icon { font-size: clamp(64px, 18vw, 110px); line-height: 1; background: none; border: 0; cursor: pointer; padding: 6px; user-select: none; -webkit-tap-highlight-color: transparent; }
+#sb-title { margin: 0; font-size: clamp(26px, 8vw, 54px); font-weight: 900; letter-spacing: .02em; color: #d11a1a; }
+#sb-sub { margin: 0; font-size: clamp(13px, 3.6vw, 18px); font-weight: 800; letter-spacing: .06em; color: #222; }
+#sb-msg { margin: 6px 0 0; max-width: 520px; font-size: clamp(16px, 4.6vw, 22px); line-height: 1.5; color: #333; }
+#sb-pass { position: fixed; inset: 0; z-index: 70; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.45); padding: 20px; }
+#sb-pass.on { display: flex; }
+#sb-pass .box { background: #fff; color: #111; border-radius: 14px; padding: 20px; width: min(92vw, 320px); display: flex; flex-direction: column; gap: 10px; font-family: system-ui, sans-serif; }
+#sb-pass p { margin: 0; font-weight: 700; }
+#sb-pass input { font-size: 18px; padding: 10px; border: 1px solid #999; border-radius: 8px; text-align: center; letter-spacing: .3em; }
+#sb-pass .row { display: flex; gap: 8px; } #sb-pass .row button { flex: 1; padding: 10px; border-radius: 8px; border: 0; font-weight: 700; cursor: pointer; }
+#sb-ok { background: #d11a1a; color: #fff; } #sb-no { background: #ddd; }
+#sb-err { min-height: 1.2em; font-size: 13px; color: #b00; }
 #r12-toast { position: fixed; left: 50%; bottom: max(22px, env(safe-area-inset-bottom)); transform: translate(-50%, 20px); z-index: 45; max-width: min(90vw, 420px);
   padding: .7rem 1.1rem; border-radius: 12px; background: rgba(20,6,13,.92); border: 1px solid rgba(212,175,55,.45); color: var(--ivory); font: 500 .8rem 'Montserrat', sans-serif; text-align: center;
   opacity: 0; pointer-events: none; transition: opacity .35s ease, transform .35s ease; }
@@ -1117,6 +1132,7 @@
       </div>
       <div class="admin-actions" id="admin-actions">
         <button id="admin-go-today">Hoy</button>
+        <button id="admin-stop-site" type="button" style="background:#c0392b;color:#fff">⛔ STOP SITE</button>
         <button id="admin-open" class="primary">Ver carta</button>
       </div>
       <!-- Al pulsar "Ver carta" en modo administrador aparecen estas 2 opciones -->
@@ -1153,6 +1169,18 @@
     <p class="lk-msg" id="lk-msg">Espera un poquito... todavía falta algo. ❤️</p>
     <p class="lk-sub" id="lk-sub"></p>
   </div>
+  <div id="site-block" role="alert" aria-hidden="true">
+    <button id="sb-icon" type="button" aria-label="Aviso">⚠️</button>
+    <h1 id="sb-title">SITIO EN MANTENIMIENTO</h1>
+    <p id="sb-sub">SISTEMA BLOQUEADO, POR FAVOR NO UTILIZAR.</p>
+    <p id="sb-msg">Hola preciosa, estoy reparando o añadiendo cosas al sitio; está listo en un momento. TE AMO ❤️</p>
+  </div>
+  <div id="sb-pass"><form class="box" id="sb-form" autocomplete="off">
+    <p id="sb-q">Contraseña</p>
+    <input id="sb-key" type="password" inputmode="numeric" autocomplete="off" />
+    <div id="sb-err"></div>
+    <div class="row"><button type="button" id="sb-no">Cancelar</button><button type="submit" id="sb-ok">Aceptar</button></div>
+  </form></div>
   <div id="r12-toast" role="status" aria-live="polite"></div>
 
 <script>
@@ -2986,7 +3014,7 @@
   /* ---------------------------------------------------------------------
      Estado del 12 (en memoria: se conserva si se pierde la conexión)
   --------------------------------------------------------------------- */
-  const S = { habilitado: null, mensaje: LOCK_TEXT, actualizado: '', offline: false, introActive: true, unlockShown: false };
+  const S = { habilitado: null, mensaje: LOCK_TEXT, actualizado: '', offline: false, introActive: true, unlockShown: false, sitioBloqueado: false };
   let cartaCache = null;
 
   async function api(method, params, body) {
@@ -3189,6 +3217,7 @@
     S.habilitado = j.habilitado_12;
     if (typeof j.mensaje_bloqueo === 'string' && j.mensaje_bloqueo.trim()) S.mensaje = j.mensaje_bloqueo.trim().slice(0, 160);
     if (typeof j.actualizado === 'string') S.actualizado = j.actualizado;
+    if (typeof j.sitio_bloqueado === 'boolean') setSiteBlock(j.sitio_bloqueado);
     S.offline = false;
     if (isSpecialDay()) {
       if (S.habilitado) { stopPolling(); unlockAnimated(); }
@@ -3214,6 +3243,54 @@
   function stopPolling() { polling = false; clearTimeout(pollT); }
   document.addEventListener('visibilitychange', () => { if (!document.hidden && polling) { clearTimeout(pollT); pollOnce(); } });
   window.addEventListener('online', () => { if (polling) { backoff = 0; clearTimeout(pollT); pollOnce(); } });
+
+
+  /* =====================================================================
+     BLOQUEO TOTAL DEL SITIO (STOP SITE) — estado en la nube
+  ===================================================================== */
+  function setSiteBlock(on) {
+    S.sitioBloqueado = !!on;
+    const el = $('site-block'); if (!el) return;
+    el.classList.toggle('on', S.sitioBloqueado);
+    el.setAttribute('aria-hidden', S.sitioBloqueado ? 'false' : 'true');
+    document.documentElement.style.overflow = S.sitioBloqueado ? 'hidden' : '';
+  }
+  let sbMode = null, sbBusy = false, siteT = null;
+  function sbOpen(mode) {
+    sbMode = mode; $('sb-q').textContent = mode === 'start' ? 'Contraseña para reactivar el sitio' : 'Contraseña para detener el sitio';
+    $('sb-err').textContent = ''; $('sb-key').value = ''; $('sb-pass').classList.add('on');
+    setTimeout(() => $('sb-key').focus(), 50);
+  }
+  function sbClose() { $('sb-pass').classList.remove('on'); sbMode = null; $('sb-key').value = ''; }
+  async function sbSubmit(e) {
+    e.preventDefault(); if (sbBusy || !sbMode) return;
+    const clave = $('sb-key').value; if (!clave) return;
+    sbBusy = true; $('sb-err').textContent = 'Enviando…';
+    try {
+      const j = await api('POST', null, { action: sbMode === 'start' ? 'start_site' : 'stop_site', clave });
+      if (j && j.ok === true) { setSiteBlock(!!j.sitio_bloqueado); sbClose(); if (!j.sitio_bloqueado) toast('Sitio reactivado'); else toast('Orden enviada a la Nube.'); }
+      else $('sb-err').textContent = (j && ERR_TXT[j.error]) || 'No se pudo completar.';
+    } catch (err) { $('sb-err').textContent = 'Sin conexión. No se cambió nada.'; }
+    sbBusy = false; $('sb-key').value = '';
+  }
+  async function siteCheck() {
+    clearTimeout(siteT);
+    if (!document.hidden && APPS_SCRIPT_URL) {
+      try { const j = await api('GET', { action: 'estado' }); if (j && j.ok === true && typeof j.sitio_bloqueado === 'boolean') setSiteBlock(j.sitio_bloqueado); } catch (e) {}
+    }
+    siteT = setTimeout(siteCheck, 15000 + Math.random() * 3000);
+  }
+  function initSiteBlock() {
+    $('sb-form').addEventListener('submit', sbSubmit);
+    $('sb-no').addEventListener('click', sbClose);
+    $('sb-icon').addEventListener('dblclick', () => sbOpen('start'));
+    let tap = 0;   // doble toque en móvil
+    $('sb-icon').addEventListener('touchend', (e) => { const n = Date.now(); if (n - tap < 450) { e.preventDefault(); sbOpen('start'); } tap = n; });
+    const b = $('admin-stop-site'); if (b) b.addEventListener('click', () => sbOpen('stop'));
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) siteCheck(); });
+    window.addEventListener('online', siteCheck);
+    siteCheck();
+  }
 
   function initLock() {
     if (!isSpecialDay()) return;      // los demás días no hay nada que bloquear
@@ -3520,6 +3597,7 @@
      Arranque
   ===================================================================== */
   initAdminBox();
+  initSiteBlock();
   initLock();
   runIntro().catch(() => { S.introActive = false; const r = $('intro-cal'); if (r) r.classList.add('gone'); })
     .then(() => { const E = EXP(); if (E && E.afterIntro) { try { E.afterIntro(); } catch (e) {} } });
