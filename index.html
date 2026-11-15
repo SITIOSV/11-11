@@ -824,6 +824,7 @@
   color: rgba(255,245,233,.82); transform: translateZ(calc(var(--cell) * .22)); text-shadow: 0 6px 10px rgba(0,0,0,.7);
 }
 .cal-cell.empty { background: none; box-shadow: none; }
+.cal-cell.out { opacity: .42; }
 .cal-cell .cal-mn { position: absolute; top: 6%; left: 9%; font: 600 calc(var(--cell) * .17) 'Montserrat', sans-serif; letter-spacing: .1em; color: rgba(247,226,156,.8); transform: translateZ(calc(var(--cell) * .22)); }
 .cal-cell.mark span { color: var(--gold-light); }
 /* Días que se van sombreando (clip, clip, clip…) hasta llegar a hoy */
@@ -3019,28 +3020,29 @@
     if (!root || !sheet || !rig) { S.introActive = false; return Promise.resolve(); }
 
     const t = Math.max(startUTC(), Math.min(lastUTC(), forUTC == null ? todayUTC() : forUTC));
-    const sd = new Date(startUTC()), ed = new Date(lastUTC());
-
-    // --- construir el calendario continuo: todos los días del 11/11 al 12/12 ---
+    // --- calendario del MES COMPLETO de la fecha: noviembre (1 al 30) hasta el 30/11; diciembre solo desde el 1/12 ---
+    const td = new Date(t), mY = td.getUTCFullYear(), mM = td.getUTCMonth();
+    const monthStart = Date.UTC(mY, mM, 1);
+    const daysInMonth = new Date(Date.UTC(mY, mM + 1, 0)).getUTCDate();
     const title = document.createElement('div'); title.className = 'cal-month';
-    title.textContent = MONTHS_UP[sd.getUTCMonth()] + ' · ' + MONTHS_UP[ed.getUTCMonth()] + ' ' + ed.getUTCFullYear();
+    title.textContent = MONTHS_UP[mM] + ' ' + mY;
     const grid = document.createElement('div'); grid.className = 'cal-days';
     ['L', 'M', 'M', 'J', 'V', 'S', 'D'].forEach((x) => { const e = document.createElement('div'); e.className = 'cal-dow-i'; e.textContent = x; grid.appendChild(e); });
-    const offset = (sd.getUTCDay() + 6) % 7;
-    const total = Math.round((lastUTC() - startUTC()) / DAY_MS) + 1;
-    const tIdx = Math.round((t - startUTC()) / DAY_MS);     // posición de hoy dentro del rango
+    const offset = (new Date(monthStart).getUTCDay() + 6) % 7;
     for (let k = 0; k < offset; k++) { const e = document.createElement('div'); e.className = 'cal-cell empty'; grid.appendChild(e); }
     let targetEl = null;
-    const dayCells = [];
-    for (let i = 0; i < total; i++) {
-      const c = document.createElement('div'); c.className = 'cal-cell'; dayCells.push(c);
-      const u = startUTC() + i * DAY_MS, ud = new Date(u).getUTCDate();
-      if (i === 0 || i === total - 1) c.classList.add('mark');
-      if (i === tIdx) { c.classList.add('target'); targetEl = c; }
-      const s = document.createElement('span'); s.textContent = ud; c.appendChild(s);
-      if (ud === 1 || i === 0) { const m = document.createElement('small'); m.className = 'cal-mn'; m.textContent = MONTHS_UP[new Date(u).getUTCMonth()].slice(0, 3); c.appendChild(m); }
+    const dayCells = [];      // solo los días que se van sombreando (desde el 11/11 hasta antes de hoy), en orden
+    for (let d = 1; d <= daysInMonth; d++) {
+      const u = Date.UTC(mY, mM, d);
+      const c = document.createElement('div'); c.className = 'cal-cell';
+      if (u < startUTC() || u > lastUTC()) c.classList.add('out');           // días del mes fuera del recorrido (se ven, pero apagados)
+      if (u === startUTC() || u === lastUTC()) c.classList.add('mark');
+      if (u === t) { c.classList.add('target'); targetEl = c; }
+      else if (u >= startUTC() && u < t) dayCells.push(c);
+      const s = document.createElement('span'); s.textContent = d; c.appendChild(s);
       grid.appendChild(c);
     }
+    const tIdx = dayCells.length;     // cuántos días se sombrean antes de llegar a hoy
     sheet.appendChild(title); sheet.appendChild(grid);
 
     // --- medidas: el centro de la fecha queda en el origen de la cámara ---
